@@ -1,8 +1,75 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import { Card, CardSectionLabel } from "@/components/ui/Card";
 
 type CameraState = "idle" | "active" | "error";
+
+interface MotionMetrics {
+  walkingSpeed?: number;
+  cadence?: number;
+  stepLength?: number;
+  armSwingL?: number;
+  armSwingR?: number;
+}
+
+const METRIC_DEFS: {
+  key: keyof MotionMetrics;
+  label: string;
+  unit: string;
+  icon: React.ReactNode;
+}[] = [
+  {
+    key: "walkingSpeed",
+    label: "Walking Speed",
+    unit: "m/s",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="h-5 w-5" aria-hidden="true">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.5l7.5-7.5 6 6L21 6" />
+      </svg>
+    ),
+  },
+  {
+    key: "cadence",
+    label: "Step Cadence",
+    unit: "steps/min",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="h-5 w-5" aria-hidden="true">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    ),
+  },
+  {
+    key: "stepLength",
+    label: "Step Length",
+    unit: "cm",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="h-5 w-5" aria-hidden="true">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+      </svg>
+    ),
+  },
+  {
+    key: "armSwingL",
+    label: "Arm Swing (L)",
+    unit: "°",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="h-5 w-5" aria-hidden="true">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15.042 21.672L13.684 16.6m0 0l-2.51 2.225.569-9.47 5.227 7.917-3.286-.672zM12 2.25V4.5m5.834.166l-1.591 1.591M20.25 10.5H18M7.757 14.743l-1.59 1.59M6 10.5H3.75m4.007-4.243l-1.59-1.59" />
+      </svg>
+    ),
+  },
+  {
+    key: "armSwingR",
+    label: "Arm Swing (R)",
+    unit: "°",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="h-5 w-5" aria-hidden="true">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 15l4.875-4.875L18 15M6 20.25h12A2.25 2.25 0 0020.25 18V6A2.25 2.25 0 0018 3.75H6A2.25 2.25 0 003.75 6v12A2.25 2.25 0 006 20.25z" />
+      </svg>
+    ),
+  },
+];
 
 const CAMERA_ERRORS: Record<string, string> = {
   NotAllowedError: "Camera permission was denied. Please allow access in your browser settings and try again.",
@@ -23,6 +90,8 @@ export default function CameraCapture() {
   const streamRef = useRef<MediaStream | null>(null);
   const [cameraState, setCameraState] = useState<CameraState>("idle");
   const [errorMessage, setErrorMessage] = useState<string>("");
+  // Metrics are undefined until MediaPipe populates them.
+  const [metrics] = useState<MotionMetrics>({});
 
   const stopStream = useCallback(() => {
     if (streamRef.current) {
@@ -147,6 +216,32 @@ export default function CameraCapture() {
           </button>
         )}
       </div>
+
+      {/* Live Metrics */}
+      <section aria-labelledby="live-metrics-heading" className="w-full mt-2">
+        <CardSectionLabel id="live-metrics-heading">Live Metrics</CardSectionLabel>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          {METRIC_DEFS.map(({ key, label, unit, icon }) => {
+            const value = metrics[key];
+            return (
+              <Card key={key} padding="sm">
+                <div className="flex items-center gap-2 mb-3 text-zinc-400 dark:text-zinc-500">
+                  {icon}
+                  <span className="text-xs font-medium uppercase tracking-wide leading-tight">
+                    {label}
+                  </span>
+                </div>
+                <p className="text-2xl font-semibold text-zinc-300 dark:text-zinc-600 mb-1 tabular-nums">
+                  {value !== undefined ? value : "—"}
+                </p>
+                <p className="text-xs text-zinc-400 dark:text-zinc-500">
+                  {unit}&nbsp;·&nbsp;{value !== undefined ? "live" : "awaiting feed"}
+                </p>
+              </Card>
+            );
+          })}
+        </div>
+      </section>
     </div>
   );
 }
