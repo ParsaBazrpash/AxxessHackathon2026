@@ -1,4 +1,5 @@
 import EmptyState from "@/components/EmptyState";
+import { Card, CardSectionLabel } from "@/components/ui/Card";
 
 const mobilityMetrics = [
   {
@@ -34,52 +35,41 @@ export default function DashboardPage() {
         Mobility Dashboard
       </h1>
       <p className="text-zinc-500 dark:text-zinc-400 mb-8 text-sm">
-        Your movement data will appear here after a session.
+        Your patient&apos;s movement data will appear here after a session.
       </p>
 
       {/* Today's Mobility Analytics */}
       <section aria-labelledby="analytics-heading" className="mb-10">
-        <h2
-          id="analytics-heading"
-          className="text-xs font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 mb-4"
-        >
+        <CardSectionLabel id="analytics-heading">
           Today&apos;s Mobility Analytics
-        </h2>
+        </CardSectionLabel>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           {mobilityMetrics.map(({ label, icon }) => (
-            <div
-              key={label}
-              className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6"
-            >
+            <Card key={label}>
               <div className="flex items-center gap-2 mb-3 text-zinc-400 dark:text-zinc-500">
                 {icon}
                 <span className="text-xs font-medium uppercase tracking-wide">{label}</span>
               </div>
               <p className="text-3xl font-semibold text-zinc-300 dark:text-zinc-600 mb-1">—</p>
-              <p className="text-xs text-zinc-400 dark:text-zinc-500">
-                Waiting for session data
-              </p>
-            </div>
+              <p className="text-xs text-zinc-400 dark:text-zinc-500">Waiting for session data</p>
+            </Card>
           ))}
         </div>
       </section>
 
       {/* Previous PDF Reports */}
       <section aria-labelledby="reports-heading">
-        <h2
-          id="reports-heading"
-          className="text-xs font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 mb-4"
-        >
+        <CardSectionLabel id="reports-heading">
           Previous PDF Reports
-        </h2>
+        </CardSectionLabel>
 
-        <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+        <Card padding="none">
           <EmptyState
             title="No reports yet"
             description="PDF reports will be generated after you complete a mobility session."
           />
-        </div>
+        </Card>
       </section>
     </>
   );

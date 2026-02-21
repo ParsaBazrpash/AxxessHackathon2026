@@ -1,3 +1,5 @@
+import { Card, CardSectionLabel } from "@/components/ui/Card";
+
 const liveMetrics = [
   {
     label: "Walking Speed",
@@ -47,8 +49,8 @@ export default function CameraPage() {
         Real-time movement capture for motor analysis.
       </p>
 
-      {/* Camera preview placeholder */}
-      <div className="mx-auto w-full max-w-2xl rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden mb-8">
+      {/* Camera preview */}
+      <Card padding="none" className="mx-auto w-full max-w-2xl overflow-hidden mb-8">
         <div className="flex aspect-video items-center justify-center bg-zinc-100 dark:bg-zinc-800">
           <div className="text-center">
             <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-zinc-200 dark:bg-zinc-700">
@@ -73,30 +75,22 @@ export default function CameraPage() {
             <p className="mt-1 text-xs text-zinc-400">Webcam not yet connected</p>
           </div>
         </div>
-      </div>
+      </Card>
 
       {/* Live Metrics */}
       <section aria-labelledby="live-metrics-heading" className="mb-8">
-        <h2
-          id="live-metrics-heading"
-          className="text-xs font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 mb-4"
-        >
-          Live Metrics
-        </h2>
+        <CardSectionLabel id="live-metrics-heading">Live Metrics</CardSectionLabel>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {liveMetrics.map(({ label, unit, icon }) => (
-            <div
-              key={label}
-              className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6"
-            >
+            <Card key={label}>
               <div className="flex items-center gap-2 mb-3 text-zinc-400 dark:text-zinc-500">
                 {icon}
                 <span className="text-xs font-medium uppercase tracking-wide">{label}</span>
               </div>
               <p className="text-3xl font-semibold text-zinc-300 dark:text-zinc-600 mb-1">—</p>
               <p className="text-xs text-zinc-400 dark:text-zinc-500">{unit} · awaiting feed</p>
-            </div>
+            </Card>
           ))}
         </div>
       </section>
