@@ -34,6 +34,20 @@ interface InferenceResult {
   symptomsSpike: boolean;
 }
 
+type ReportEventType = "symptom" | "fall";
+
+interface ReportEvent {
+  id: string;
+  type: ReportEventType;
+  severity: "low" | "medium" | "high";
+  pdProbability: number;
+  fallProbability: number;
+  fallFlag: boolean;
+  isoTimestamp: string;
+  centralDate: string;
+  centralTime: string;
+}
+
 const INFERENCE_API_URL =
   process.env.NEXT_PUBLIC_INFERENCE_API_URL ??
   "http://127.0.0.1:8000/predict/features";
@@ -42,6 +56,8 @@ const FEATURE_DIM = 124;
 const INFER_EVERY_N_FRAMES = 6;
 const INFER_MIN_FRAMES = 30;
 const SYMPTOM_SPIKE_THRESHOLD = 0.7;
+const EVENT_COOLDOWN_MS = 8_000;
+const CENTRAL_TIMEZONE = "America/Chicago";
 
 const IDX = {
   LH_IP: 23,
@@ -270,6 +286,40 @@ function radToDeg(rad: number) {
   return (rad * 180) / Math.PI;
 }
 
+function toCentralDateParts(date: Date) {
+  const datePart = new Intl.DateTimeFormat("en-US", {
+    timeZone: CENTRAL_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+
+  const timePart = new Intl.DateTimeFormat("en-US", {
+    timeZone: CENTRAL_TIMEZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(date);
+
+  return { datePart, timePart };
+}
+
+function toCentralClockString(date: Date) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: CENTRAL_TIMEZONE,
+    weekday: "short",
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+    timeZoneName: "short",
+  }).format(date);
+}
+
 export default function CameraCapture({
   onMetricsSnapshot,
   onSessionEnd,
@@ -287,12 +337,18 @@ export default function CameraCapture({
   const metricsRef = useRef<MotionMetrics>({});
   const metricsTickRef = useRef<number>(0);
   const spikeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastOccurrenceAtRef = useRef<{ symptom: number; fall: number }>({
+    symptom: 0,
+    fall: 0,
+  });
   const [cameraState, setCameraState] = useState<CameraState>("idle");
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [metrics, setMetrics] = useState<MotionMetrics>({});
   const [inference, setInference] = useState<InferenceResult | null>(null);
   const [inferenceError, setInferenceError] = useState<string>("");
   const [symptomSpike, setSymptomSpike] = useState(false);
+  const [centralNow, setCentralNow] = useState<Date>(new Date());
+  const [reportEvents, setReportEvents] = useState<ReportEvent[]>([]);
 
   // Keep callback refs stable so interval/cleanup closures always see latest
   const onMetricsSnapshotRef = useRef(onMetricsSnapshot);
@@ -307,6 +363,110 @@ export default function CameraCapture({
       onMetricsSnapshotRef.current?.(metrics);
     }
   }, [metrics, cameraState]);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setCentralNow(new Date());
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const recordEvent = useCallback((
+    type: ReportEventType,
+    payload: {
+      severity: "low" | "medium" | "high";
+      pdProbability: number;
+      fallProbability: number;
+      fallFlag: boolean;
+    },
+  ) => {
+    const nowMs = Date.now();
+    if (nowMs - lastOccurrenceAtRef.current[type] < EVENT_COOLDOWN_MS) {
+      return;
+    }
+    lastOccurrenceAtRef.current[type] = nowMs;
+
+    const now = new Date(nowMs);
+    const { datePart, timePart } = toCentralDateParts(now);
+
+    const event: ReportEvent = {
+      id: `${type}-${nowMs}`,
+      type,
+      severity: payload.severity,
+      pdProbability: payload.pdProbability,
+      fallProbability: payload.fallProbability,
+      fallFlag: payload.fallFlag,
+      isoTimestamp: now.toISOString(),
+      centralDate: datePart,
+      centralTime: `${timePart} CT`,
+    };
+
+    setReportEvents((prev) => [event, ...prev].slice(0, 500));
+  }, []);
+
+  const downloadReport = useCallback((format: "json" | "csv") => {
+    if (reportEvents.length === 0) {
+      return;
+    }
+
+    const stamp = toCentralDateParts(new Date());
+    const safeStamp = `${stamp.datePart.replace(/\//g, "-")}_${stamp.timePart.replace(/:/g, "-")}`;
+
+    let content = "";
+    let fileName = "";
+    let mime = "";
+
+    if (format === "json") {
+      content = JSON.stringify(
+        {
+          timezone: "Central Time (America/Chicago)",
+          generatedAtCentral: `${stamp.datePart} ${stamp.timePart} CT`,
+          totalOccurrences: reportEvents.length,
+          events: reportEvents,
+        },
+        null,
+        2,
+      );
+      fileName = `camera_report_${safeStamp}.json`;
+      mime = "application/json";
+    } else {
+      const header = [
+        "event_type",
+        "severity",
+        "fall_flag",
+        "pd_probability",
+        "fall_probability",
+        "central_date",
+        "central_time",
+        "utc_iso_timestamp",
+      ].join(",");
+
+      const rows = reportEvents.map((e) => [
+        e.type,
+        e.severity,
+        String(e.fallFlag),
+        e.pdProbability.toFixed(4),
+        e.fallProbability.toFixed(4),
+        e.centralDate,
+        e.centralTime,
+        e.isoTimestamp,
+      ].join(","));
+
+      content = [header, ...rows].join("\n");
+      fileName = `camera_report_${safeStamp}.csv`;
+      mime = "text/csv;charset=utf-8";
+    }
+
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }, [reportEvents]);
 
   const triggerSymptomSpike = useCallback(() => {
     setSymptomSpike(true);
@@ -397,13 +557,29 @@ export default function CameraCapture({
       if (symptomsSpikeNow) {
         triggerSymptomSpike();
       }
+
+      if (fallDetected) {
+        recordEvent("fall", {
+          severity,
+          pdProbability: probability,
+          fallProbability,
+          fallFlag: true,
+        });
+      } else if (severity !== "low" || detected) {
+        recordEvent("symptom", {
+          severity,
+          pdProbability: probability,
+          fallProbability,
+          fallFlag: false,
+        });
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setInferenceError(msg);
     } finally {
       inferBusyRef.current = false;
     }
-  }, [getFixedWindow, triggerSymptomSpike]);
+  }, [getFixedWindow, recordEvent, triggerSymptomSpike]);
 
   const frameToFeature = useCallback((results: {
     poseLandmarks?: Array<{ x?: number; y?: number; z?: number; visibility?: number }>;
@@ -498,6 +674,7 @@ export default function CameraCapture({
     inferBusyRef.current = false;
     prevHipRef.current = null;
     prevTsRef.current = null;
+    lastOccurrenceAtRef.current = { symptom: 0, fall: 0 };
 
     onSessionEndRef.current?.(metricsRef.current);
     setCameraState("idle");
@@ -633,6 +810,10 @@ export default function CameraCapture({
           </>
         )}
 
+        <div className="absolute right-3 top-3 rounded-lg bg-zinc-900/70 px-3 py-1.5 text-xs font-medium text-zinc-100 backdrop-blur">
+          {toCentralClockString(centralNow)}
+        </div>
+
         {/* Idle overlay */}
         {cameraState === "idle" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-zinc-400">
@@ -758,6 +939,78 @@ export default function CameraCapture({
           </button>
         )}
       </div>
+
+      <section aria-labelledby="session-report-heading" className="w-full mt-2">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <CardSectionLabel id="session-report-heading">Session Report</CardSectionLabel>
+          <div className="flex gap-2">
+            <button
+              onClick={() => downloadReport("csv")}
+              disabled={reportEvents.length === 0}
+              className="inline-flex items-center rounded-lg border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-xs font-semibold text-zinc-700 dark:text-zinc-200 disabled:opacity-50"
+            >
+              Export CSV
+            </button>
+            <button
+              onClick={() => downloadReport("json")}
+              disabled={reportEvents.length === 0}
+              className="inline-flex items-center rounded-lg border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-xs font-semibold text-zinc-700 dark:text-zinc-200 disabled:opacity-50"
+            >
+              Export JSON
+            </button>
+            <button
+              onClick={() => setReportEvents([])}
+              disabled={reportEvents.length === 0}
+              className="inline-flex items-center rounded-lg border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-xs font-semibold text-zinc-700 dark:text-zinc-200 disabled:opacity-50"
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white/80 dark:bg-zinc-900/70 p-3">
+          {reportEvents.length === 0 ? (
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              No symptom or fall occurrences logged yet for this session.
+            </p>
+          ) : (
+            <div className="max-h-56 overflow-auto">
+              <table className="w-full text-xs">
+                <thead className="text-zinc-500 dark:text-zinc-400">
+                  <tr>
+                    <th className="py-1 text-left font-medium">Type</th>
+                    <th className="py-1 text-left font-medium">Severity</th>
+                    <th className="py-1 text-left font-medium">Fall</th>
+                    <th className="py-1 text-left font-medium">Date (CT)</th>
+                    <th className="py-1 text-left font-medium">Time (CT)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reportEvents.map((event) => (
+                    <tr key={event.id} className="border-t border-zinc-200/70 dark:border-zinc-800/80">
+                      <td className="py-1.5 pr-2 text-zinc-700 dark:text-zinc-200">
+                        {event.type}
+                      </td>
+                      <td className="py-1.5 pr-2 text-zinc-700 dark:text-zinc-200">
+                        {event.severity.toUpperCase()}
+                      </td>
+                      <td className="py-1.5 pr-2 text-zinc-700 dark:text-zinc-200">
+                        {event.fallFlag ? "YES" : "NO"}
+                      </td>
+                      <td className="py-1.5 pr-2 text-zinc-700 dark:text-zinc-200">
+                        {event.centralDate}
+                      </td>
+                      <td className="py-1.5 pr-2 text-zinc-700 dark:text-zinc-200">
+                        {event.centralTime}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </section>
 
       {/* Live Metrics */}
       <section aria-labelledby="live-metrics-heading" className="w-full mt-2">
